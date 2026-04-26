@@ -1,0 +1,61 @@
+@import "tailwindcss";
+
+/*
+ * Inner Child — Design Tokens
+ * Matches the wireframe CSS variables from design/ux/
+ */
+@theme {
+  --color-ic-bg: #FAF7F2;
+  --color-ic-card: #FFFFFF;
+  --color-ic-primary: #8B6AAE;
+  --color-ic-primary-light: #C4ABD9;
+  --color-ic-accent: #E8A87C;
+  --color-ic-text: #3D3D3D;
+  --color-ic-text-light: #8A8A8A;
+  --color-ic-border: #E8E2DA;
+  --color-ic-safe-green: #7CB89E;
+  --color-ic-warm-glow: #FFF5EB;
+  --color-ic-input-bg: #FAFAFA;
+  --color-ic-hover-purple: #F8F0FF;
+  --color-ic-hover-input: #F0EAFA;
+
+  --font-family-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+}
+
+/* Base styles */
+body {
+  font-family: var(--font-family-sans);
+  background: var(--color-ic-bg);
+  color: var(--color-ic-text);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Gentle float animation for welcome icon */
+@keyframes gentle-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+}
+
+.animate-gentle-float {
+  animation: gentle-float 4s ease-in-out infinite;
+}
+
+/* Slide transitions for onboarding */
+@keyframes slide-in-right {
+  from { opacity: 0; transform: translateX(24px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes slide-in-left {
+  from { opacity: 0; transform: translateX(-24px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+.animate-slide-in {
+  animation: slide-in-right 0.35s ease-out;
+}
+
+.animate-slide-back {
+  animation: slide-in-left 0.35s ease-out;
+}
