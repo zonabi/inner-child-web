@@ -55,6 +55,9 @@ export default function HomePage() {
               <button
                 key={feature.id}
                 disabled={!feature.available}
+                onClick={() => {
+                  if (feature.available) router.push(feature.href);
+                }}
                 className={[
                   "relative text-left p-5 rounded-2xl border-2 transition-all group",
                   feature.available

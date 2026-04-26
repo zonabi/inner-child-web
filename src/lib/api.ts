@@ -5,7 +5,15 @@
  * Replace with real fetch calls when the FastAPI backend is wired up.
  */
 
-import type { OnboardingAnswers, UserProfile } from "./types";
+import type {
+  OnboardingAnswers,
+  UserProfile,
+  AgeGroupKey,
+  Mood,
+  InterestPick,
+  InterestCategory,
+  OutputFormat,
+} from "./types";
 
 /** Simulates a network delay */
 function delay(ms: number): Promise<void> {
@@ -110,4 +118,111 @@ export function getNostalgiaPreview(
   };
 
   return items[decade] ?? items[1990]!;
+}
+
+// ──────────────────────────────────────────────
+// Memory Canvas API Stubs
+// ──────────────────────────────────────────────
+
+export interface CanvasGenerateParams {
+  birth_year: number;
+  country: string;
+  age_group: AgeGroupKey;
+  target_age: number;
+  interests: InterestPick[];
+  mood: Mood;
+  additional_context?: string;
+  output_formats: OutputFormat[];
+}
+
+export interface CanvasGenerateResult {
+  job_id: string;
+  status: "queued" | "processing" | "complete" | "failed";
+  estimated_seconds: number;
+}
+
+export interface CanvasProgressCallback {
+  (progress: number, message: string): void;
+}
+
+/**
+ * Start canvas generation.  Returns a job ID and calls the progress
+ * callback as the generation proceeds.
+ *
+ * STUB: Simulates a ~4-second generation with progress ticks.
+ * REAL: POST /api/v1/canvas/generate  (returns websocket_url for progress)
+ */
+export async function generateCanvas(
+  params: CanvasGenerateParams,
+  onProgress: CanvasProgressCallback
+): Promise<{ canvas_id: string; image_url: string }> {
+  // Suppress unused-var lint — params will be sent to real API.
+  void params;
+
+  const messages = [
+    "Gathering your memories...",
+    "Painting your childhood...",
+    "Mixing the perfect colors...",
+    "Scattering the polaroids...",
+    "Adding some warmth...",
+    "Almost there...",
+  ];
+
+  let progress = 0;
+  let msgIdx = 0;
+
+  // Simulate incremental progress over ~4 seconds.
+  for (let tick = 0; tick < 12; tick++) {
+    await delay(350);
+    progress += Math.random() * 10 + 4;
+    if (progress > 95) progress = 95;
+
+    if (progress > (msgIdx + 1) * 16) {
+      msgIdx = Math.min(msgIdx + 1, messages.length - 1);
+    }
+    onProgress(Math.round(progress), messages[msgIdx]!);
+  }
+
+  // Final completion.
+  onProgress(100, "Done!");
+  await delay(400);
+
+  return {
+    canvas_id: `canvas_${Date.now()}`,
+    image_url: "/mock-canvas.png",
+  };
+}
+
+/**
+ * Get interest suggestions for a category + decade + country.
+ *
+ * STUB: Returns the static suggestions from types.ts.
+ * REAL: GET /api/v1/canvas/suggestions?category=X&decade=Y&country=Z
+ */
+export async function getCanvasSuggestions(
+  category: InterestCategory,
+  _birthYear: number,
+  _country: string
+): Promise<string[]> {
+  await delay(200);
+
+  // Import the static suggestions.  In production, the backend returns
+  // era-filtered + country-specific suggestions.
+  const { INTEREST_SUGGESTIONS } = await import("./types");
+  return INTEREST_SUGGESTIONS[category] ?? [];
+}
+
+/**
+ * Download a formatted canvas image.
+ *
+ * STUB: Returns a placeholder blob URL after a short delay.
+ * REAL: GET /api/v1/canvas/{canvas_id}/image/{format}
+ */
+export async function downloadCanvasFormat(
+  _canvasId: string,
+  _format: OutputFormat
+): Promise<string> {
+  await delay(600);
+  // In production, returns a signed URL to the cropped image.
+  return "/mock-canvas.png";
 }
