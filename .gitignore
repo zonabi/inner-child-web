@@ -26,3 +26,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# test coverage
+coverage/
+
+# stale config (replaced by jest.config.mjs)
+jest.config.ts

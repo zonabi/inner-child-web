@@ -1,7 +1,7 @@
 "use client";
 
 import { useOnboardingStore } from "@/store/onboarding";
-import { GOAL_OPTIONS, type OnboardingGoal } from "@/lib/types";
+import { GOAL_OPTIONS } from "@/lib/types";
 import ProgressDots from "./ProgressDots";
 
 export default function GoalsScreen() {

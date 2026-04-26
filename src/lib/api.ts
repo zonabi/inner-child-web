@@ -72,7 +72,7 @@ export function getDecadeLabel(birthYear: number): string {
  */
 export function getNostalgiaPreview(
   birthYear: number,
-  _country: string
+  _country: string // eslint-disable-line @typescript-eslint/no-unused-vars -- will be used with real API
 ): { icon: string; label: string }[] {
   const decade = Math.floor((birthYear + 8) / 10) * 10;
 
