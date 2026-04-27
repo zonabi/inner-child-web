@@ -1,8 +1,7 @@
 /**
- * Inner Child — API Stubs
+ * Inner Child — API Layer
  *
- * Mock implementations that simulate backend responses.
- * Replace with real fetch calls when the FastAPI backend is wired up.
+ * Onboarding stubs (local) + real backend calls for Memory Canvas.
  */
 
 import type {
@@ -14,6 +13,35 @@ import type {
   InterestCategory,
   OutputFormat,
 } from "./types";
+
+/**
+ * Maps display country names (from onboarding) to ISO 2-letter codes.
+ * The backend expects 2-3 char ISO codes.
+ */
+const COUNTRY_TO_ISO: Record<string, string> = {
+  "United States": "US",
+  "Mexico": "MX",
+  "Canada": "CA",
+  "United Kingdom": "GB",
+  "Australia": "AU",
+  "Japan": "JP",
+  "South Korea": "KR",
+  "Brazil": "BR",
+  "Germany": "DE",
+  "India": "IN",
+  "France": "FR",
+  "Spain": "ES",
+  "Colombia": "CO",
+  "Argentina": "AR",
+  "Philippines": "PH",
+  "Nigeria": "NG",
+  "South Africa": "ZA",
+};
+
+/** Convert a display country name to its ISO code.  Falls back to "US". */
+export function toIsoCountry(displayName: string): string {
+  return COUNTRY_TO_ISO[displayName] ?? displayName.slice(0, 2).toUpperCase();
+}
 
 /** Simulates a network delay */
 function delay(ms: number): Promise<void> {
@@ -121,8 +149,10 @@ export function getNostalgiaPreview(
 }
 
 // ──────────────────────────────────────────────
-// Memory Canvas API Stubs
+// Memory Canvas API
 // ──────────────────────────────────────────────
+
+import { API_BASE_URL, WS_BASE_URL } from "./config";
 
 export interface CanvasGenerateParams {
   birth_year: number;
@@ -135,94 +165,198 @@ export interface CanvasGenerateParams {
   output_formats: OutputFormat[];
 }
 
-export interface CanvasGenerateResult {
-  job_id: string;
-  status: "queued" | "processing" | "complete" | "failed";
-  estimated_seconds: number;
-}
-
 export interface CanvasProgressCallback {
   (progress: number, message: string): void;
 }
 
 /**
- * Start canvas generation.  Returns a job ID and calls the progress
- * callback as the generation proceeds.
+ * Start canvas generation, subscribe to WebSocket progress,
+ * and resolve when the canvas is complete.
  *
- * STUB: Simulates a ~4-second generation with progress ticks.
- * REAL: POST /api/v1/canvas/generate  (returns websocket_url for progress)
+ * POST /api/v1/canvas/generate → WS /api/v1/canvas/ws/{job_id}
  */
 export async function generateCanvas(
   params: CanvasGenerateParams,
   onProgress: CanvasProgressCallback
 ): Promise<{ canvas_id: string; image_url: string }> {
-  // Suppress unused-var lint — params will be sent to real API.
-  void params;
+  // 1. POST to start the generation job.
+  const res = await fetch(`${API_BASE_URL}/api/v1/canvas/generate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      birth_year: params.birth_year,
+      country: params.country,
+      target_age: params.target_age,
+      interests: params.interests,
+      mood: params.mood,
+      canvas_override: null,
+      additional_context: params.additional_context ?? null,
+      seed: null,
+      output_formats: params.output_formats,
+    }),
+  });
 
-  const messages = [
-    "Gathering your memories...",
-    "Painting your childhood...",
-    "Mixing the perfect colors...",
-    "Scattering the polaroids...",
-    "Adding some warmth...",
-    "Almost there...",
-  ];
-
-  let progress = 0;
-  let msgIdx = 0;
-
-  // Simulate incremental progress over ~4 seconds.
-  for (let tick = 0; tick < 12; tick++) {
-    await delay(350);
-    progress += Math.random() * 10 + 4;
-    if (progress > 95) progress = 95;
-
-    if (progress > (msgIdx + 1) * 16) {
-      msgIdx = Math.min(msgIdx + 1, messages.length - 1);
-    }
-    onProgress(Math.round(progress), messages[msgIdx]!);
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    const msg =
+      (body as { message?: string })?.message ??
+      (body as { detail?: string })?.detail ??
+      "Failed to start generation";
+    throw new Error(msg);
   }
 
-  // Final completion.
-  onProgress(100, "Done!");
-  await delay(400);
-
-  return {
-    canvas_id: `canvas_${Date.now()}`,
-    image_url: "/mock-canvas.png",
+  const job = (await res.json()) as {
+    job_id: string;
+    status: string;
+    websocket_url: string;
+    estimated_seconds: number;
   };
+
+  // 2. Connect to the WebSocket for real-time progress.
+  return new Promise((resolve, reject) => {
+    const wsUrl = `${WS_BASE_URL}${job.websocket_url}`;
+    const ws = new WebSocket(wsUrl);
+
+    /** Safety timeout — reject if nothing happens for too long. */
+    const timeout = setTimeout(() => {
+      ws.close();
+      reject(new Error("Generation timed out.  Please try again."));
+    }, (job.estimated_seconds + 60) * 1000);
+
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data as string) as {
+          status: string;
+          progress?: number;
+          message?: string;
+          step?: string;
+          canvas_id?: string;
+          formats?: string[];
+          error_code?: string;
+          can_retry?: boolean;
+        };
+
+        if (data.status === "processing") {
+          const pct = Math.round((data.progress ?? 0) * 100);
+          onProgress(pct, data.message ?? "Working...");
+        }
+
+        if (data.status === "complete" && data.canvas_id) {
+          clearTimeout(timeout);
+          ws.close();
+          onProgress(100, "Done!");
+          // Build the image URL for the default phone format.
+          const imageUrl = `${API_BASE_URL}/api/v1/canvas/${data.canvas_id}/image/phone`;
+          resolve({ canvas_id: data.canvas_id, image_url: imageUrl });
+        }
+
+        if (data.status === "failed") {
+          clearTimeout(timeout);
+          ws.close();
+          reject(
+            new Error(data.message ?? "Generation failed.  Please try again.")
+          );
+        }
+      } catch {
+        // Ignore malformed messages.
+      }
+    };
+
+    ws.onerror = () => {
+      clearTimeout(timeout);
+      reject(new Error("Lost connection to the server.  Please try again."));
+    };
+
+    ws.onclose = (event) => {
+      // If the WebSocket closes before we resolved, treat it as an error
+      // unless we already resolved (timeout cleared).
+      if (!event.wasClean) {
+        clearTimeout(timeout);
+        // Only reject if the promise hasn't already settled.
+        reject(new Error("Connection closed unexpectedly.  Please try again."));
+      }
+    };
+  });
 }
 
 /**
- * Get interest suggestions for a category + decade + country.
+ * Get interest suggestions for a category, filtered by decade + country.
  *
- * STUB: Returns the static suggestions from types.ts.
- * REAL: GET /api/v1/canvas/suggestions?category=X&decade=Y&country=Z
+ * GET /api/v1/canvas/suggestions/{category}?birth_year=X&target_age=Y&country=Z
+ *
+ * Falls back to static client-side suggestions if the backend is unreachable.
  */
 export async function getCanvasSuggestions(
   category: InterestCategory,
-  _birthYear: number,
-  _country: string
+  birthYear: number,
+  country: string,
+  targetAge: number = 8
 ): Promise<string[]> {
-  await delay(200);
+  try {
+    const params = new URLSearchParams({
+      birth_year: String(birthYear),
+      target_age: String(targetAge),
+      country: country || "US",
+      limit: "6",
+    });
 
-  // Import the static suggestions.  In production, the backend returns
-  // era-filtered + country-specific suggestions.
+    const res = await fetch(
+      `${API_BASE_URL}/api/v1/canvas/suggestions/${category}?${params}`
+    );
+
+    if (res.ok) {
+      const data = (await res.json()) as { suggestions: string[] };
+      return data.suggestions;
+    }
+  } catch {
+    // Backend unreachable — fall through to static suggestions.
+  }
+
+  // Fallback: use the client-side static suggestions.
   const { INTEREST_SUGGESTIONS } = await import("./types");
   return INTEREST_SUGGESTIONS[category] ?? [];
 }
 
 /**
- * Download a formatted canvas image.
+ * Get the image URL for a specific canvas format.
  *
- * STUB: Returns a placeholder blob URL after a short delay.
- * REAL: GET /api/v1/canvas/{canvas_id}/image/{format}
+ * GET /api/v1/canvas/{canvas_id}/image/{format}
+ *
+ * Returns a URL string that can be used directly in an <img> src
+ * or fetched as a blob for download.
+ */
+export function getCanvasImageUrl(
+  canvasId: string,
+  format: OutputFormat
+): string {
+  return `${API_BASE_URL}/api/v1/canvas/${canvasId}/image/${format}`;
+}
+
+/**
+ * Download a formatted canvas image as a blob and trigger a browser download.
+ *
+ * GET /api/v1/canvas/{canvas_id}/image/{format}
  */
 export async function downloadCanvasFormat(
-  _canvasId: string,
-  _format: OutputFormat
-): Promise<string> {
-  await delay(600);
-  // In production, returns a signed URL to the cropped image.
-  return "/mock-canvas.png";
+  canvasId: string,
+  format: OutputFormat
+): Promise<void> {
+  const url = getCanvasImageUrl(canvasId, format);
+  const res = await fetch(url);
+
+  if (!res.ok) {
+    throw new Error("Failed to download canvas image.");
+  }
+
+  const blob = await res.blob();
+  const blobUrl = URL.createObjectURL(blob);
+
+  // Trigger browser download.
+  const a = document.createElement("a");
+  a.href = blobUrl;
+  a.download = `memory-canvas-${format}.png`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(blobUrl);
 }

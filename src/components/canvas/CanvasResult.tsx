@@ -1,6 +1,8 @@
 "use client";
 
+import { useState } from "react";
 import { useCanvasStore } from "@/store/canvas";
+import { getCanvasImageUrl, downloadCanvasFormat } from "@/lib/api";
 import type { OutputFormat } from "@/lib/types";
 
 const FORMAT_LABELS: { key: OutputFormat; label: string }[] = [
@@ -10,16 +12,29 @@ const FORMAT_LABELS: { key: OutputFormat; label: string }[] = [
   { key: "story", label: "Story" },
 ];
 
-/** Aspect ratio CSS for the preview container. */
-const FORMAT_ASPECT: Record<OutputFormat, string> = {
-  phone: "aspect-[9/19.5]",
-  desktop: "aspect-[16/9]",
-  square: "aspect-square",
-  story: "aspect-[9/16]",
-};
-
 export default function CanvasResult() {
-  const { activeFormat, setActiveFormat, goToStep, reset } = useCanvasStore();
+  const { canvasId, activeFormat, setActiveFormat, goToStep, reset } =
+    useCanvasStore();
+
+  const [downloading, setDownloading] = useState(false);
+  const [imageError, setImageError] = useState(false);
+
+  /** The real image URL from the backend, or null if no canvas yet. */
+  const imageUrl = canvasId
+    ? getCanvasImageUrl(canvasId, activeFormat)
+    : null;
+
+  async function handleDownload() {
+    if (!canvasId) return;
+    setDownloading(true);
+    try {
+      await downloadCanvasFormat(canvasId, activeFormat);
+    } catch {
+      // Download failed — the browser may have blocked the popup.
+    } finally {
+      setDownloading(false);
+    }
+  }
 
   return (
     <div className="flex flex-col h-full">
@@ -29,24 +44,24 @@ export default function CanvasResult() {
 
       {/* Preview area */}
       <div className="flex-1 bg-ic-card rounded-2xl overflow-hidden flex items-center justify-center p-4 min-h-[360px]">
-        <div
-          className={[
-            "bg-gradient-to-br from-ic-primary-light via-ic-accent to-ic-primary rounded-xl max-h-full max-w-full flex items-center justify-center",
-            FORMAT_ASPECT[activeFormat],
-          ].join(" ")}
-          style={{ width: "100%", maxHeight: "100%" }}
-        >
-          {/* Placeholder — will show real generated image when backend is wired. */}
-          <div className="text-center text-white p-6">
+        {imageUrl && !imageError ? (
+          /* eslint-disable-next-line @next/next/no-img-element */
+          <img
+            src={imageUrl}
+            alt="Your Memory Canvas"
+            className="max-h-full max-w-full rounded-xl object-contain"
+            onError={() => setImageError(true)}
+          />
+        ) : (
+          <div className="text-center text-ic-text-light p-6">
             <div className="text-5xl mb-3">🎨</div>
-            <div className="text-sm font-semibold opacity-90">
-              Your canvas will appear here
-            </div>
-            <div className="text-xs opacity-70 mt-1">
-              {activeFormat} format
+            <div className="text-sm font-semibold">
+              {imageError
+                ? "Couldn't load your canvas.  Try downloading instead."
+                : "Your canvas will appear here"}
             </div>
           </div>
-        </div>
+        )}
       </div>
 
       {/* Format tabs */}
@@ -54,7 +69,10 @@ export default function CanvasResult() {
         {FORMAT_LABELS.map(({ key, label }) => (
           <button
             key={key}
-            onClick={() => setActiveFormat(key)}
+            onClick={() => {
+              setActiveFormat(key);
+              setImageError(false);
+            }}
             className={[
               "px-4 py-2 rounded-full text-xs font-semibold transition-all",
               activeFormat === key
@@ -69,8 +87,12 @@ export default function CanvasResult() {
 
       {/* Action grid */}
       <div className="grid grid-cols-2 gap-2.5">
-        <button className="p-3.5 rounded-xl text-sm font-semibold bg-ic-primary text-white transition-transform active:scale-[0.97]">
-          Download
+        <button
+          onClick={handleDownload}
+          disabled={downloading || !canvasId}
+          className="p-3.5 rounded-xl text-sm font-semibold bg-ic-primary text-white transition-transform active:scale-[0.97] disabled:opacity-50"
+        >
+          {downloading ? "Saving..." : "Download"}
         </button>
         <button className="p-3.5 rounded-xl text-sm font-semibold bg-ic-accent text-white transition-transform active:scale-[0.97]">
           Set Wallpaper
@@ -82,9 +104,7 @@ export default function CanvasResult() {
           Tweak & Retry
         </button>
         <button
-          onClick={() => {
-            reset();
-          }}
+          onClick={() => reset()}
           className="p-3.5 rounded-xl text-sm font-semibold bg-ic-card text-ic-text transition-transform active:scale-[0.97]"
         >
           Start Over

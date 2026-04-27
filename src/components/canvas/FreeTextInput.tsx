@@ -3,7 +3,7 @@
 import { useCanvasStore } from "@/store/canvas";
 import { useOnboardingStore } from "@/store/onboarding";
 import { HINT_PILLS, AGE_GROUPS } from "@/lib/types";
-import { generateCanvas } from "@/lib/api";
+import { generateCanvas, toIsoCountry } from "@/lib/api";
 import CanvasProgressDots from "./CanvasProgressDots";
 
 export default function FreeTextInput() {
@@ -48,7 +48,7 @@ export default function FreeTextInput() {
       const result = await generateCanvas(
         {
           birth_year: answers.birth_year ?? 1990,
-          country: answers.country || "US",
+          country: toIsoCountry(answers.country || "US"),
           age_group: ageGroup,
           target_age: targetAge,
           interests,
