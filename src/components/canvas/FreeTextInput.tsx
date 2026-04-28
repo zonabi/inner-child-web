@@ -1,9 +1,10 @@
 "use client";
 
+import { useSearchParams } from "next/navigation";
 import { useCanvasStore } from "@/store/canvas";
 import { useOnboardingStore } from "@/store/onboarding";
-import { HINT_PILLS, AGE_GROUPS } from "@/lib/types";
-import { generateCanvas, toIsoCountry } from "@/lib/api";
+import { AGE_GROUPS, getHintPills } from "@/lib/types";
+import { generateCanvas, toIsoCountry, type PipelineVersion } from "@/lib/api";
 import CanvasProgressDots from "./CanvasProgressDots";
 
 export default function FreeTextInput() {
@@ -22,9 +23,18 @@ export default function FreeTextInput() {
   } = useCanvasStore();
 
   const { answers } = useOnboardingStore();
+  const searchParams = useSearchParams();
+
+  // Dev toggle: add ?pipeline=v1_template to the URL to compare against v1
+  const pipelineParam = searchParams.get("pipeline") as PipelineVersion | null;
+  const pipelineVersion: PipelineVersion =
+    pipelineParam === "v1_template" ? "v1_template" : "v2_enriched";
 
   const charCount = additionalContext.length;
   const maxChars = 500;
+
+  // Dynamic hints based on age group + selected interests
+  const hintPills = getHintPills(ageGroup, interests);
 
   /** Append a hint pill to the text area. */
   function addHint(text: string) {
@@ -54,6 +64,7 @@ export default function FreeTextInput() {
           interests,
           mood,
           additional_context: additionalContext || undefined,
+          pipeline_version: pipelineVersion,
           output_formats: ["phone", "desktop", "square", "story"],
         },
         (progress, message) => {
@@ -81,7 +92,7 @@ export default function FreeTextInput() {
 
       {/* Hint pills */}
       <div className="flex flex-wrap gap-2 mb-5">
-        {HINT_PILLS.map((hint) => (
+        {hintPills.map((hint) => (
           <button
             key={hint}
             onClick={() => addHint(hint)}

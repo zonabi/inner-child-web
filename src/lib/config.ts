@@ -8,9 +8,3 @@
 /** Base URL for the FastAPI backend (no trailing slash). */
 export const API_BASE_URL: string =
   process.env.NEXT_PUBLIC_IC_API_URL ?? "http://localhost:8000";
-
-/**
- * WebSocket base URL derived from the API URL.
- * Converts http:// → ws:// and https:// → wss://.
- */
-export const WS_BASE_URL: string = API_BASE_URL.replace(/^http/, "ws");

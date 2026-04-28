@@ -152,7 +152,9 @@ export function getNostalgiaPreview(
 // Memory Canvas API
 // ──────────────────────────────────────────────
 
-import { API_BASE_URL, WS_BASE_URL } from "./config";
+import { API_BASE_URL } from "./config";
+
+export type PipelineVersion = "v1_template" | "v2_enriched";
 
 export interface CanvasGenerateParams {
   birth_year: number;
@@ -162,6 +164,7 @@ export interface CanvasGenerateParams {
   interests: InterestPick[];
   mood: Mood;
   additional_context?: string;
+  pipeline_version?: PipelineVersion;
   output_formats: OutputFormat[];
 }
 
@@ -169,11 +172,13 @@ export interface CanvasProgressCallback {
   (progress: number, message: string): void;
 }
 
+/** How often (ms) to poll for job status during canvas generation. */
+const POLL_INTERVAL_MS = 1500;
+
 /**
- * Start canvas generation, subscribe to WebSocket progress,
- * and resolve when the canvas is complete.
+ * Start canvas generation, poll for progress, and resolve when complete.
  *
- * POST /api/v1/canvas/generate → WS /api/v1/canvas/ws/{job_id}
+ * POST /api/v1/canvas/generate → GET /api/v1/canvas/jobs/{job_id}/status
  */
 export async function generateCanvas(
   params: CanvasGenerateParams,
@@ -191,6 +196,7 @@ export async function generateCanvas(
       mood: params.mood,
       canvas_override: null,
       additional_context: params.additional_context ?? null,
+      pipeline_version: params.pipeline_version ?? "v2_enriched",
       seed: null,
       output_formats: params.output_formats,
     }),
@@ -208,75 +214,59 @@ export async function generateCanvas(
   const job = (await res.json()) as {
     job_id: string;
     status: string;
-    websocket_url: string;
+    poll_url: string;
     estimated_seconds: number;
   };
 
-  // 2. Connect to the WebSocket for real-time progress.
-  return new Promise((resolve, reject) => {
-    const wsUrl = `${WS_BASE_URL}${job.websocket_url}`;
-    const ws = new WebSocket(wsUrl);
+  // 2. Poll for progress until complete or failed.
+  const pollUrl = `${API_BASE_URL}${job.poll_url}`;
+  const deadlineMs = (job.estimated_seconds + 60) * 1000;
+  const startTime = Date.now();
 
-    /** Safety timeout — reject if nothing happens for too long. */
-    const timeout = setTimeout(() => {
-      ws.close();
-      reject(new Error("Generation timed out.  Please try again."));
-    }, (job.estimated_seconds + 60) * 1000);
+  while (true) {
+    await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
 
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data as string) as {
-          status: string;
-          progress?: number;
-          message?: string;
-          step?: string;
-          canvas_id?: string;
-          formats?: string[];
-          error_code?: string;
-          can_retry?: boolean;
-        };
+    if (Date.now() - startTime > deadlineMs) {
+      throw new Error("Generation timed out.  Please try again.");
+    }
 
-        if (data.status === "processing") {
-          const pct = Math.round((data.progress ?? 0) * 100);
-          onProgress(pct, data.message ?? "Working...");
-        }
+    let data: {
+      status: string;
+      progress?: number;
+      message?: string;
+      canvas_id?: string;
+      formats?: string[];
+      error?: { code?: string; message?: string };
+      can_retry?: boolean;
+    };
 
-        if (data.status === "complete" && data.canvas_id) {
-          clearTimeout(timeout);
-          ws.close();
-          onProgress(100, "Done!");
-          // Build the image URL for the default phone format.
-          const imageUrl = `${API_BASE_URL}/api/v1/canvas/${data.canvas_id}/image/phone`;
-          resolve({ canvas_id: data.canvas_id, image_url: imageUrl });
-        }
-
-        if (data.status === "failed") {
-          clearTimeout(timeout);
-          ws.close();
-          reject(
-            new Error(data.message ?? "Generation failed.  Please try again.")
-          );
-        }
-      } catch {
-        // Ignore malformed messages.
+    try {
+      const pollRes = await fetch(pollUrl);
+      if (!pollRes.ok) {
+        // Transient error — keep polling.
+        continue;
       }
-    };
+      data = await pollRes.json();
+    } catch {
+      // Network blip — keep polling.
+      continue;
+    }
 
-    ws.onerror = () => {
-      clearTimeout(timeout);
-      reject(new Error("Lost connection to the server.  Please try again."));
-    };
+    const pct = Math.round((data.progress ?? 0) * 100);
+    onProgress(pct, data.message ?? "Working...");
 
-    ws.onclose = (event) => {
-      // If the WebSocket closes before we resolved, treat it as an error
-      // unless we already resolved (timeout cleared).
-      if (!event.wasClean) {
-        clearTimeout(timeout);
-        // Only reject if the promise hasn't already settled.
-        reject(new Error("Connection closed unexpectedly.  Please try again."));
-      }
-    };
-  });
+    if (data.status === "complete" && data.canvas_id) {
+      onProgress(100, "Done!");
+      const imageUrl = `${API_BASE_URL}/api/v1/canvas/${data.canvas_id}/image/phone`;
+      return { canvas_id: data.canvas_id, image_url: imageUrl };
+    }
+
+    if (data.status === "failed") {
+      throw new Error(
+        data.error?.message ?? "Generation failed.  Please try again."
+      );
+    }
+  }
 }
 
 /**

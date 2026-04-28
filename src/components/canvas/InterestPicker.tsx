@@ -2,14 +2,16 @@
 
 import { useCanvasStore } from "@/store/canvas";
 import {
+  AGE_GROUPS,
   INTEREST_CATEGORIES,
-  INTEREST_SUGGESTIONS,
+  getSuggestionsForAge,
   type InterestCategory,
 } from "@/lib/types";
 import CanvasProgressDots from "./CanvasProgressDots";
 
 export default function InterestPicker() {
   const {
+    ageGroup,
     interests,
     activeCategory,
     categoryMemories,
@@ -18,10 +20,13 @@ export default function InterestPicker() {
     setCategoryMemory,
     nextStep,
     prevStep,
+    goToStep,
   } = useCanvasStore();
 
   const pickCount = interests.length;
   const canContinue = pickCount >= 3;
+
+  const ageConfig = AGE_GROUPS.find((g) => g.key === ageGroup);
 
   /** Count picks within a single category. */
   function countForCategory(cat: InterestCategory): number {
@@ -37,12 +42,30 @@ export default function InterestPicker() {
     (c) => c.key === activeCategory
   );
   const activeSuggestions = activeCategory
-    ? INTEREST_SUGGESTIONS[activeCategory] ?? []
+    ? getSuggestionsForAge(activeCategory, ageGroup)
     : [];
 
   return (
     <div className="flex flex-col h-full">
       <CanvasProgressDots total={4} current={1} />
+
+      {/* Age group badge — always visible for context */}
+      {ageConfig && (
+        <button
+          onClick={() => goToStep(0)}
+          className="self-center flex items-center gap-2 bg-ic-hover-purple px-4 py-2 rounded-full mb-4 text-sm transition-colors hover:bg-ic-primary-light"
+        >
+          <span>{ageConfig.emoji}</span>
+          <span className="font-semibold text-ic-primary">
+            {ageConfig.label}
+          </span>
+          <span className="text-ic-text-light text-xs">
+            ages {ageConfig.ageRange}
+          </span>
+          <span className="text-ic-primary-light text-xs ml-1">Change</span>
+        </button>
+      )}
+
       <h2 className="text-xl font-bold text-center mb-1.5">
         What did your world look like?
       </h2>
